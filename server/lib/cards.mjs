@@ -371,9 +371,10 @@ export async function composeBookMeeting({ card, signal } = {}) {
 
 export async function generateEmptySentence({ previousSentence, seed, signal } = {}) {
   const previous = edgeText(previousSentence || seed, '程序在这里发生了一个意外 但你完全可以放任不管')
+  const origin = edgeText(seed || previous, previous)
   const result = await strictStage('empty-next', {
     system: PROMPTS.emptyNext,
-    user: JSON.stringify({ previous }), maxTokens: 100, temperature: 1.15, signal,
+    user: JSON.stringify({ seed: origin, previous }), maxTokens: 100, temperature: 0.9, signal,
   }, exactSentence)
   const sentence = edgeText(result.value.sentence, previous)
   return { sentence, tail: sentence, mode: result.mode, attempts: result.attempts }

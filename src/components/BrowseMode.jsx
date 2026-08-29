@@ -153,7 +153,7 @@ function BrowseMode({
 
   const pumpEmptyTask = useCallback(async (cardId, { force = false } = {}) => {
     const task = emptyTasksRef.current.get(cardId)
-    if (!task || task.inFlight || task.awaitingReveal || task.failed || !task.visible || (!force && task.finished)) return
+    if (!task || task.inFlight || (task.awaitingReveal && !force) || task.failed || !task.visible || (!force && task.finished)) return
     task.inFlight = true
     task.forceContinue = force
     if (force) task.finished = false
@@ -203,12 +203,13 @@ function BrowseMode({
           if (event === 'done') {
             const tail = normalizeCardHead(payload?.tail || task.card.tail)
             const shouldReveal = task.awaitingReveal
+            const atLimit = payload?.atLimit === true
             if (shouldReveal) {
-              updateEmptyCard(cardId, { tail, content: { ...(task.card.content || {}), stream_status: 'revealing', streamStatus: 'revealing' } })
+              updateEmptyCard(cardId, { tail, content: { ...(task.card.content || {}), stream_status: 'revealing', streamStatus: 'revealing', atLimit } })
               if (!force) task.finished = !payload?.paused
             } else {
               const nextStatus = force ? 'done' : (payload?.paused ? 'waiting' : 'done')
-              updateEmptyCard(cardId, { tail, content: { ...(task.card.content || {}), stream_status: nextStatus, streamStatus: nextStatus } })
+              updateEmptyCard(cardId, { tail, content: { ...(task.card.content || {}), stream_status: nextStatus, streamStatus: nextStatus, atLimit } })
               task.finished = nextStatus === 'done'
             }
           }
@@ -223,7 +224,6 @@ function BrowseMode({
     } finally {
       task.inFlight = false
       task.controller = null
-      if (task.awaitingReveal) return
       if (force) {
         task.forceContinue = false
         task.failed = false
@@ -232,6 +232,7 @@ function BrowseMode({
         updateEmptyCard(cardId, { content: task.card.content })
         return
       }
+      if (task.awaitingReveal) return
       if (task.visible && !task.finished && !task.failed) {
         task.card = { ...task.card, content: { ...(task.card.content || {}), stream_status: 'waiting', streamStatus: 'waiting' } }
         updateEmptyCard(cardId, { content: task.card.content })
@@ -289,12 +290,11 @@ function BrowseMode({
       return
     }
     if (task.visible && !task.finished) {
-      task.card = { ...task.card, content: { ...(task.card.content || {}), stream_status: 'waiting', streamStatus: 'waiting' } }
+      // 初次生成一批后即停顿，把"继续续写"留给用户主动点击，不自动 fill 满。
+      task.finished = true
+      task.card = { ...task.card, content: { ...(task.card.content || {}), stream_status: 'done', streamStatus: 'done' } }
       updateEmptyCard(cardId, { content: task.card.content })
-      task.retryTimer = window.setTimeout(() => {
-        task.retryTimer = null
-        pumpEmptyTask(cardId)
-      }, 1000)
+      task.forceContinue = false
     } else if (task.finished) {
       task.card = { ...task.card, content: { ...(task.card.content || {}), stream_status: 'done', streamStatus: 'done' } }
       updateEmptyCard(cardId, { content: task.card.content })
@@ -303,7 +303,7 @@ function BrowseMode({
 
   const handleEmptyContinue = useCallback((cardId) => {
     const task = emptyTasksRef.current.get(cardId)
-    if (!task || task.inFlight || task.awaitingReveal || !task.visible) return
+    if (!task || task.inFlight) return
     pumpEmptyTask(cardId, { force: true })
   }, [pumpEmptyTask])
 

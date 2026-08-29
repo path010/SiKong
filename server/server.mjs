@@ -25,8 +25,8 @@ const PORT = Number(process.env.PORT || 8787)
 const MAX_CARDS = Math.max(20, Number(process.env.SIKONG_MAX_CARDS || process.env.SIKONG_MAX_CARD_CACHE || 1000))
 const MAX_REQUEST_CACHE = Math.max(20, Number(process.env.SIKONG_MAX_REQUEST_CACHE || 1000))
 const MAX_EXPLANATIONS = Math.max(20, Number(process.env.SIKONG_MAX_EXPLANATION_CACHE || 1000))
-const MAX_EMPTY_SENTENCES = Math.max(1, Math.min(9, Number(process.env.SIKONG_EMPTY_MAX_SENTENCES || 9)))
-const MAX_EMPTY_LENGTH = Math.max(40, Math.min(180, Number(process.env.SIKONG_EMPTY_MAX_LENGTH || 180)))
+const MAX_EMPTY_SENTENCES = Math.max(1, Math.min(30, Number(process.env.SIKONG_EMPTY_MAX_SENTENCES || 30)))
+const MAX_EMPTY_LENGTH = Math.max(40, Math.min(600, Number(process.env.SIKONG_EMPTY_MAX_LENGTH || 600)))
 const SAVED_CARDS_FILE = path.join(__dirname, 'saved-cards.json')
 const MODEL_CONFIG_FILE = path.join(__dirname, 'model-config.json')
 const DIST_DIR = path.resolve(__dirname, '..', 'dist')
@@ -466,6 +466,7 @@ async function streamEmpty(response, card, body, context) {
   emptyInFlight.add(card.id)
   const single = body?.single === true
   const force = body?.force === true
+  const batch = Math.max(1, Math.min(6, Number(body?.batch) || 3))
   const lines = Array.isArray(card.content?.lines) ? [...card.content.lines].map(edgeText).filter(Boolean) : []
   const initial = edgeText(card.tail || card.head, card.head)
   let previous = lines.at(-1) || initial
@@ -475,12 +476,12 @@ async function streamEmpty(response, card, body, context) {
   sse(response, 'meta', { cardId: card.id, seed: previous, provider: modelStatus().provider, available: modelAvailable, degraded: !modelAvailable }, context.signal)
   try {
     const rounds = force
-      ? 1
+      ? Math.min(batch, MAX_EMPTY_SENTENCES - lines.length)
       : single
-        ? Math.min(1, MAX_EMPTY_SENTENCES - lines.length)
+        ? Math.min(batch, MAX_EMPTY_SENTENCES - lines.length)
         : Math.max(0, MAX_EMPTY_SENTENCES - lines.length)
     for (let index = 0; index < rounds && !context.signal.aborted; index += 1) {
-      const result = await cardsLib.generateEmptySentence({ previousSentence: previous, signal: context.signal })
+      const result = await cardsLib.generateEmptySentence({ previousSentence: previous, seed: card.head || card.input || initial, signal: context.signal })
       let next = edgeText(result?.sentence || result?.tail, previous)
       mode = result?.mode || 'model'
       if (!next || next === previous) break
@@ -499,12 +500,14 @@ async function streamEmpty(response, card, body, context) {
       sse(response, 'sentence', { sentence: next, index: lines.length - 1 }, context.signal)
     }
     if (context.signal.aborted) return
-    const paused = !force && single && lines.length < MAX_EMPTY_SENTENCES
+    const atLimit = lines.length >= MAX_EMPTY_SENTENCES
+    const paused = !force && !atLimit && lines.length < MAX_EMPTY_SENTENCES
     card.content.streamStatus = paused ? 'paused' : 'done'
     card.content.stream_status = card.content.streamStatus
-    card.content = { ...card.content, kind: 'empty', lines: [...lines], stream: card.content.stream, streamStatus: card.content.streamStatus, stream_status: card.content.streamStatus }
+    card.content.atLimit = atLimit
+    card.content = { ...card.content, kind: 'empty', lines: [...lines], stream: card.content.stream, streamStatus: card.content.streamStatus, stream_status: card.content.streamStatus, atLimit: card.content.atLimit }
     boundedSet(cards, card.id, card, MAX_CARDS)
-    sse(response, 'done', { cardId: card.id, mode, length: Array.from(card.content.stream).length, sentences: lines.length, tail: card.tail, paused }, context.signal)
+    sse(response, 'done', { cardId: card.id, mode, length: Array.from(card.content.stream).length, sentences: lines.length, tail: card.tail, paused, atLimit }, context.signal)
     if (!response.writableEnded && !response.destroyed) response.end()
   } catch (error) {
     if (!isAbort(error, context.signal)) sse(response, 'error', { cardId: card.id, message: publicError(error) }, context.signal)

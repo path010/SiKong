@@ -122,8 +122,8 @@ function llmContent(system, user) {
     assertExactKeys(input, ['head', 'tail'], '何以相遇')
     return { title: '雨夜交换路灯', story: '它们在雨夜交换了各自的路灯。' }
   }
-  if (system.includes('只能记住上一句的续写器')) {
-    assertExactKeys(input, ['previous'], '空卡续写')
+  if (system.includes('克制的续写器')) {
+    assertExactKeys(input, ['seed', 'previous'], '空卡续写')
     emptySentenceIndex += 1
     return { sentence: `第${emptySentenceIndex}句移到新场景` }
   }
@@ -234,7 +234,7 @@ function identify(call) {
   if (system.includes('双盲诗解释器')) return 'poem-meeting'
   if (system.includes('答案之书解释器')) return 'book-meeting'
   if (system.includes('意外联想器')) return 'human-story'
-  if (system.includes('只能记住上一句')) return 'empty-next'
+  if (system.includes('克制的续写器')) return 'empty-next'
   if (system.includes('答案之书。')) return 'book-draw'
   return 'unknown'
 }
@@ -410,7 +410,7 @@ try {
     const streamEvents = parseSse(await response.text())
     const call = llmCalls.at(-1)
     assert.equal(identify(call), 'empty-next')
-    assert.deepEqual(call.input, { previous: expectedPrevious })
+    assert.deepEqual(call.input, { seed: empty.head, previous: expectedPrevious })
     assert.equal(call.user.includes('FORGED_'), false)
     const sentence = streamEvents.find(item => item.event === 'sentence')?.data.sentence
     const done = streamEvents.find(item => item.event === 'done')?.data

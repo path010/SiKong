@@ -291,6 +291,7 @@ function EmptyCardCopy({ card, active, onVisibilityChange, onRevealComplete, onC
   const isWaiting = ['pending', 'streaming'].includes(streamStatus)
   const isRevealing = active && streamStatus === 'revealing'
   const isFinished = streamStatus === 'done'
+  const atLimit = card.content?.atLimit === true
   const revealDoneRef = useRef('')
   useEffect(() => {
     onVisibilityChange?.(card.id, active)
@@ -328,10 +329,15 @@ function EmptyCardCopy({ card, active, onVisibilityChange, onRevealComplete, onC
           )
         })}
       </p>
-      {isFinished && (
+      {isFinished && !atLimit && (
         <button className="empty-card-continue" type="button" onClick={() => onContinue?.(card.id)}>
           继续续写
         </button>
+      )}
+      {isFinished && atLimit && (
+        <span className="empty-card-limit">
+          续写已达到上限
+        </span>
       )}
       {isWaiting && (
         <span className="empty-card-status">
